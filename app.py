@@ -3,22 +3,47 @@ import time
 import json
 import csv
 import os
+import threading
 from datetime import datetime, timedelta
 from collections import defaultdict
 from twilio.rest import Client
-import config
+from flask import Flask
 
 # ============================================================
-# TWILIO ALERT FUNCTION
+# FLASK WEB SERVER (For Render)
 # ============================================================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "✅ Order Flow System is Running!"
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_webserver():
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# ============================================================
+# TWILIO CONFIGURATION
+# ============================================================
+TWILIO_SID = os.environ.get('TWILIO_SID', '')
+TWILIO_TOKEN = os.environ.get('TWILIO_TOKEN', '')
+TWILIO_WHATSAPP_FROM = os.environ.get('TWILIO_WHATSAPP_FROM', 'whatsapp:+14155238886')
+WHATSAPP_TO = os.environ.get('WHATSAPP_TO', '')
+SYMBOL = os.environ.get('SYMBOL', 'BTCUSDT')
+BLOCK_MINUTES = int(os.environ.get('BLOCK_MINUTES', '5'))
+
 def send_alert(message, alert_type="INFO"):
     """Send WhatsApp alert via Twilio"""
     try:
-        client = Client(config.TWILIO_SID, config.TWILIO_TOKEN)
+        client = Client(TWILIO_SID, TWILIO_TOKEN)
         msg = client.messages.create(
-            body=f"🔔 {alert_type}\n\n{message}\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n📊 System: Order Flow Monitor",
-            from_=config.TWILIO_WHATSAPP_FROM,
-            to=config.WHATSAPP_TO
+            body=f"🔔 {alert_type}\n\n{message}\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            from_=TWILIO_WHATSAPP_FROM,
+            to=WHATSAPP_TO
         )
         print(f"✅ WhatsApp sent: {msg.sid}")
         return True
@@ -27,7 +52,7 @@ def send_alert(message, alert_type="INFO"):
         return False
 
 # ============================================================
-# MAIN SYSTEM
+# PROFESSIONAL ORDER FLOW SYSTEM
 # ============================================================
 class ProfessionalOrderFlowSystem:
     def __init__(self, symbol='BTCUSDT'):
@@ -69,25 +94,6 @@ class ProfessionalOrderFlowSystem:
         self.trades_csv = f"trades_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         self.init_csv()
         self.init_trades_csv()
-        
-        # Send startup alert
-        send_alert(f"""🚀 SYSTEM STARTED SUCCESSFULLY!
-
-📊 Symbol: {self.symbol}
-⏰ Block Duration: {config.BLOCK_MINUTES} minutes
-📡 Status: CONNECTED & RUNNING
-
-✅ System is now monitoring BTCUSDT
-✅ Alert notifications are ENABLED
-✅ Data logging is ACTIVE
-
-You will receive alerts when:
-• BUY/SIGNALS detected
-• Whale activity detected
-• Iceberg orders detected
-• Position updates
-
-🟢 SYSTEM READY for market analysis!""", "🚀 STARTUP")
 
     def init_csv(self):
         with open(self.csv_file, 'w', newline='') as f:
@@ -151,13 +157,13 @@ You will receive alerts when:
 
     def get_next_block(self, current_time):
         minute = current_time.minute
-        start_minute = (minute // config.BLOCK_MINUTES) * config.BLOCK_MINUTES
+        start_minute = (minute // BLOCK_MINUTES) * BLOCK_MINUTES
         
         block_start = current_time.replace(minute=start_minute, second=0, microsecond=0)
-        if current_time >= block_start + timedelta(minutes=config.BLOCK_MINUTES):
-            block_start = block_start + timedelta(minutes=config.BLOCK_MINUTES)
+        if current_time >= block_start + timedelta(minutes=BLOCK_MINUTES):
+            block_start = block_start + timedelta(minutes=BLOCK_MINUTES)
         
-        block_end = block_start + timedelta(minutes=config.BLOCK_MINUTES)
+        block_end = block_start + timedelta(minutes=BLOCK_MINUTES)
         return block_start, block_end
 
     def calculate_vwap(self, trades):
@@ -520,7 +526,6 @@ You will receive alerts when:
             'sl': self.sl_price
         }
         
-        # Send WhatsApp Alert
         message = f"""🟢 BUY SIGNAL EXECUTED!
 
 💰 Entry Price: ${self.entry_price:.2f}
@@ -532,9 +537,7 @@ You will receive alerts when:
 
 📈 Buy Pressure: {metrics['buy_pressure']:.1f}%
 📊 Cumulative Delta: {metrics['cumulative_delta']:.2f}
-🐋 Whale Volume: {metrics['whale_volume']:.2f} BTC
-
-⚠️ Trade is SIMULATED - No real funds used!"""
+🐋 Whale Volume: {metrics['whale_volume']:.2f} BTC"""
         
         send_alert(message, "🟢 BUY SIGNAL")
 
@@ -562,7 +565,6 @@ You will receive alerts when:
             'sl': self.sl_price
         }
         
-        # Send WhatsApp Alert
         message = f"""🔴 SELL SIGNAL EXECUTED!
 
 💰 Entry Price: ${self.entry_price:.2f}
@@ -574,9 +576,7 @@ You will receive alerts when:
 
 📈 Sell Pressure: {metrics['sell_pressure']:.1f}%
 📊 Cumulative Delta: {metrics['cumulative_delta']:.2f}
-🐋 Whale Volume: {metrics['whale_volume']:.2f} BTC
-
-⚠️ Trade is SIMULATED - No real funds used!"""
+🐋 Whale Volume: {metrics['whale_volume']:.2f} BTC"""
         
         send_alert(message, "🔴 SELL SIGNAL")
 
@@ -589,7 +589,6 @@ You will receive alerts when:
         
         self.exit_time = datetime.now()
         
-        # Send WhatsApp Alert
         message = f"""🟡 POSITION EXITED!
 
 💰 Exit Price: ${price:.2f}
@@ -605,7 +604,6 @@ You will receive alerts when:
         
         send_alert(message, "🟡 EXIT SIGNAL")
         
-        # Save trade
         with open(self.trades_csv, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -699,7 +697,6 @@ You will receive alerts when:
         elif signal['verdict'] == 'EXIT_POSITION' and self.in_position:
             self.execute_exit(metrics['avg_price'], signal['reason'], metrics)
         
-        # Save to CSV
         with open(self.csv_file, 'a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
@@ -739,9 +736,6 @@ You will receive alerts when:
                 round(self.tp2_price, 2) if self.in_position else 0,
                 round(self.sl_price, 2) if self.in_position else 0
             ])
-        
-        # Print summary
-        self.print_summary(metrics, signal)
 
     def print_summary(self, metrics, signal):
         print("\n" + "="*80)
@@ -760,7 +754,7 @@ You will receive alerts when:
         print("🏦 PROFESSIONAL ORDER FLOW SYSTEM")
         print("="*80)
         print(f"💰 Symbol: {self.symbol}")
-        print(f"⏰ Block Duration: {config.BLOCK_MINUTES} minutes")
+        print(f"⏰ Block Duration: {BLOCK_MINUTES} minutes")
         print("📊 WhatsApp Alerts: ENABLED")
         print(f"📁 Logging: {self.csv_file}")
         print("="*80)
@@ -784,7 +778,7 @@ You will receive alerts when:
                         previous_metrics = self.calculate_block_metrics()
                     
                     self.block_start = self.block_end
-                    self.block_end = self.block_start + timedelta(minutes=config.BLOCK_MINUTES)
+                    self.block_end = self.block_start + timedelta(minutes=BLOCK_MINUTES)
                     self.block_trades = []
                     print(f"\n⏳ New Block: {self.block_start.strftime('%H:%M:%S')} → {self.block_end.strftime('%H:%M:%S')}")
                 
@@ -814,6 +808,19 @@ You will receive alerts when:
                 print(f"❌ Error: {e}")
                 time.sleep(1)
 
+# ============================================================
+# MAIN
+# ============================================================
 if __name__ == "__main__":
-    system = ProfessionalOrderFlowSystem(config.SYMBOL)
+    # Start web server in background
+    thread = threading.Thread(target=run_webserver)
+    thread.daemon = True
+    thread.start()
+    print("✅ Web server started on port 10000")
+    
+    # Send startup alert
+    send_alert(f"🚀 SYSTEM STARTED!\nSymbol: {SYMBOL}\nBlock: {BLOCK_MINUTES} minutes", "STARTUP")
+    
+    # Start your system
+    system = ProfessionalOrderFlowSystem(SYMBOL)
     system.run()
