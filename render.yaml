@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: order-flow-system
+    runtime: python
+    plan: free
+    autoDeploy: true
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: TWILIO_SID
+        sync: false
+      - key: TWILIO_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+      - key: WHATSAPP_TO
+        sync: false
+      - key: SYMBOL
+        value: BTCUSDT
+      - key: BLOCK_MINUTES
+        value: 5
